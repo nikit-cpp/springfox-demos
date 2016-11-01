@@ -14,6 +14,12 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders
 import org.springframework.web.context.WebApplicationContext
 import springfox.documentation.staticdocs.Swagger2MarkupResultHandler
 
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Paths
+
+import static org.hamcrest.Matchers.is
+import static org.hamcrest.Matchers.notNullValue
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*
 
@@ -33,7 +39,7 @@ class StaticDocsTest extends spock.lang.Specification {
     this.mockMvc = MockMvcBuilders.webAppContextSetup(this.context).build()
   }
 
-
+  // I just add saving json to build/swagger_json
   def "generates the petstore api asciidoc"() {
     setup:
       String outDir = System.getProperty('asciiDocOutputDir', 'build/aciidoc')
@@ -42,9 +48,19 @@ class StaticDocsTest extends spock.lang.Specification {
               .build()
 
     when:
-      this.mockMvc.perform(get("/v2/api-docs").accept(MediaType.APPLICATION_JSON))
+      String out = this.mockMvc.perform(get("/v2/api-docs").accept(MediaType.APPLICATION_JSON))
               .andDo(resultHandler)
-              .andExpect(status().isOk())
+              .andExpect(status().isOk()).andReturn().response.contentAsString
+      String SWAGGER_OUTPUT_DIR = "build/swagger_json"
+      String SWAGGER_JSON_FILE = "swagger.json"
+      Files.createDirectories(Paths.get(SWAGGER_OUTPUT_DIR));
+      BufferedWriter writer = Files.newBufferedWriter(Paths.get(SWAGGER_OUTPUT_DIR, SWAGGER_JSON_FILE), StandardCharsets.UTF_8)
+      try {
+        writer.write(out); // for debug purposes
+      } finally {
+        writer.close()
+      }
+
     then:
       def list = []
       def dir = new File(resultHandler.outputDir)
@@ -52,5 +68,18 @@ class StaticDocsTest extends spock.lang.Specification {
         list << file.name
       }
       list.sort() == ['definitions.adoc', 'overview.adoc', 'paths.adoc']
+  }
+
+  def "check for field 'type' exists for @RequestParam Map<String, String>"() {
+    def mockResult
+    when: {
+      mockResult = this.mockMvc.perform(get("/v2/api-docs").accept(MediaType.APPLICATION_JSON)).
+          andExpect(status().isOk())
+    }
+    then: {
+      mockResult.
+              andExpect(jsonPath('$.paths./fail.post.parameters[0].name', is('requestParameters'))). // I just check what $.paths./fail works
+              andExpect(jsonPath('$.paths./fail.post.parameters[0].type', notNullValue()))
+    }
   }
 }
